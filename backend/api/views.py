@@ -1,6 +1,6 @@
 from rest_framework import viewsets, permissions, status
 from rest_framework.response import Response
-from rest_framework.decorators import action
+from rest_framework.decorators import action, permission_classes
 from rest_framework.views import APIView
 from django.contrib.auth import authenticate, logout
 from django.utils.decorators import method_decorator
@@ -9,36 +9,97 @@ from rest_framework.authtoken.models import Token
 from django.contrib.auth import get_user_model
 from .models import *
 from .serializers import *
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.authtoken.models import Token
+from rest_framework.decorators import api_view
 
 User = get_user_model()
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def validate_token(request):
+    return Response({
+        'valid': True,
+        'user': {
+            'id': request.user.id,
+            'email': request.user.email,
+            'username': request.user.username
+        }
+    })
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def logout_view(request):
+    request.user.auth_token.delete()
+    return Response({'success': True})
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def current_user(request):
+    return Response({
+        'id': request.user.id,
+        'username': request.user.username,
+        'email': request.user.email
+    })
+
+@method_decorator(csrf_exempt, name='dispatch')
+class ValidateTokenView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        return Response({
+            'success': True,
+            'user': {
+                'id': request.user.id,
+                'email': request.user.email,
+                'username': request.user.username,
+            }
+        })
 
 @method_decorator(csrf_exempt, name='dispatch')
 class LoginView(APIView):
     authentication_classes = []  # Disable authentication
-    permission_classes = []     # Disable permission checks
+    permission_classes = []  # Disable permission checks
 
     def post(self, request):
-        email = request.data.get('email')
-        password = request.data.get('password')
+        email = request.data.get('email', '').strip()
+        password = request.data.get('password', '')
         
+        # Check if both email and password are provided
         if not email or not password:
             return Response(
                 {'success': False, 'error': 'Please provide both email and password'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
-        user = authenticate(username=email, password=password)
-        
+
+        # Try with email parameter (Django's default)
+        user = authenticate(request, username=email, password=password)
+
+        # If the first authentication fails, try with email instead of username
+        if not user:
+            try:
+                user = User.objects.get(email=email)
+                user = authenticate(request, username=user.username, password=password)
+            except User.DoesNotExist:
+                return Response(
+                    {'success': False, 'error': 'Invalid credentials'},
+                    status=status.HTTP_401_UNAUTHORIZED
+                )
+
+        # If authentication still fails, return error
         if not user:
             return Response(
                 {'success': False, 'error': 'Invalid credentials'},
                 status=status.HTTP_401_UNAUTHORIZED
             )
-            
-        token, created = Token.objects.get_or_create(user=user)
+        
+        # Generate and return a token for the authenticated user
+        token, _ = Token.objects.get_or_create(user=user)
+
         return Response({
             'success': True,
-            'token': token.key,
+            'token': token.key,  # Return token in response
             'user': {
                 'id': user.id,
                 'email': user.email,
@@ -61,6 +122,9 @@ class LogoutView(APIView):
             )
 
 class RegisterView(APIView):
+    authentication_classes = []  # Disable authentication
+    permission_classes = []  
+    
     def post(self, request):
         email = request.data.get('email')
         password = request.data.get('password')
@@ -106,12 +170,12 @@ class UserProfileView(APIView):
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
     serializer_class = UserSerializer
-    
+
     def get_permissions(self):
         if self.action in ['create', 'retrieve']:
             return [permissions.AllowAny()]
         return [permissions.IsAuthenticated()]
-    
+
     @action(detail=False, methods=['get', 'put'])
     def me(self, request):
         user = request.user

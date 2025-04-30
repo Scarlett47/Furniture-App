@@ -37,6 +37,7 @@ dependencies:
   line_awesome_flutter: ^3.0.1
   http: ^1.3.0
   flutter_secure_storage: ^8.0.0
+  shared_preferences: ^2.2.2
 
 dev_dependencies:
   flutter_test:
@@ -55,7 +56,7 @@ dev_dependencies:
 # The following section is specific to Flutter packages.
 flutter:
   assets:
-    - assets/models/chair.glb
+    - assets/models/uploads_files_4884024_chair.glb
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
   # the material Icons class.

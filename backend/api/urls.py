@@ -13,8 +13,11 @@ router.register(r'reviews', ReviewViewSet, basename='review')
 urlpatterns = [
     path('', include(router.urls)),
     path('auth/', include('rest_framework.urls')),
-    path('api/auth/login/', LoginView.as_view(), name='api-login'),
-    path('api/auth/logout/', LogoutView.as_view(), name='api-logout'),
-    path('api/auth/register/', RegisterView.as_view(), name='api-register'),
-    path('api/auth/user/', UserProfileView.as_view(), name='api-user'),
+    path('login/', LoginView.as_view(), name='api-login'),
+    path('logout/', logout_view, name='api-logout'),
+    path('register/', RegisterView.as_view(), name='api-register'),
+    path('user/', UserProfileView.as_view(), name='api-user'),
+    path('validate-token/', validate_token, name='validate-token'),
+    path('users/me/', current_user, name='current-user'),
+
 ]

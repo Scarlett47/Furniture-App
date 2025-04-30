@@ -2,8 +2,74 @@ import 'package:flutter/material.dart';
 import 'package:model_viewer_plus/model_viewer_plus.dart';
 import 'package:flutter/services.dart';
 
+class FurnitureItem {
+  final int id;
+  final String name;
+  final String price;
+  final String model;
+  final List<Color> colors;
+  final double rating;
+  final int reviews;
+  final String description;
+  bool isFavorite;
+
+  FurnitureItem({
+    required this.id,
+    required this.name,
+    required this.price,
+    required this.model,
+    required this.colors,
+    required this.rating,
+    required this.reviews,
+    required this.description,
+    this.isFavorite = false,
+  });
+
+  factory FurnitureItem.fromMap(Map<String, dynamic> map) {
+    return FurnitureItem(
+      id: map['id'] ?? UniqueKey().toString(),
+      name: map['title'] ?? 'Unnamed Product',
+      price: (map['price'] ?? 0),
+      model: map['model_3d'] ?? 'default_model.glb',
+      colors: _parseColors(map['colors']),
+      rating: (map['rating'] ?? 0),
+      reviews: map['reviews'] ?? 0,
+      description: map['description'] ?? 'No description available',
+      isFavorite: map['isFavorite'] ?? false,
+    );
+  }
+
+  static List<Color> _parseColors(dynamic colors) {
+    if (colors is List<Color>) return colors;
+    if (colors is List) {
+      return colors.map((c) {
+        if (c is Color) return c;
+        if (c is String) {
+          // Simple string to color conversion (you can expand this)
+          switch (c.toLowerCase()) {
+            case 'red':
+              return Colors.red;
+            case 'blue':
+              return Colors.blue;
+            case 'green':
+              return Colors.green;
+            case 'brown':
+              return Colors.brown;
+            case 'black':
+              return Colors.black;
+            default:
+              return Colors.grey;
+          }
+        }
+        return Colors.grey;
+      }).toList();
+    }
+    return [Colors.grey];
+  }
+}
+
 class FurnitureDetail extends StatefulWidget {
-  final Map<String, dynamic> furnitureItem;
+  final FurnitureItem furnitureItem;
 
   const FurnitureDetail({super.key, required this.furnitureItem});
 
@@ -16,15 +82,14 @@ class _FurnitureDetailState extends State<FurnitureDetail>
   int selectedColorIndex = 0;
   int quantity = 1;
   late TabController _tabController;
-  bool isFavorite = false;
+  late bool isFavorite;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
-    isFavorite = widget.furnitureItem['isFavorite'] ?? false;
+    isFavorite = widget.furnitureItem.isFavorite;
 
-    // Set system UI overlay style for immersive experience
     SystemChrome.setSystemUIOverlayStyle(
       const SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
@@ -77,6 +142,7 @@ class _FurnitureDetailState extends State<FurnitureDetail>
             onTap: () {
               setState(() {
                 isFavorite = !isFavorite;
+                item.isFavorite = isFavorite;
               });
             },
             child: Container(
@@ -139,65 +205,34 @@ class _FurnitureDetailState extends State<FurnitureDetail>
               child: Stack(
                 children: [
                   ModelViewer(
-                    src: 'assets/models/${item['model']}',
-                    alt: "A 3D model of ${item['name']}",
+                    src: 'assets/models/${item.model.split('/').last}',
                     ar: true,
                     autoRotate: true,
                     cameraControls: true,
                     backgroundColor: Colors.transparent,
                   ),
-                  // AR View Badge
-                  Positioned(
-                    bottom: 20,
-                    right: 20,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.7),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: const [
-                          Icon(Icons.view_in_ar, color: Colors.white, size: 16),
-                          SizedBox(width: 6),
-                          Text(
-                            'View in AR',
-                            style: TextStyle(color: Colors.white, fontSize: 12),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
                 ],
               ),
             ),
           ),
-
           // Details Section
           Expanded(
             flex: 7,
             child: Container(
               width: double.infinity,
-              decoration: BoxDecoration(
+              decoration: const BoxDecoration(
                 color: Colors.white,
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(30),
-                ),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
+                    color: Colors.black12,
                     blurRadius: 20,
-                    offset: const Offset(0, -5),
+                    offset: Offset(0, -5),
                   ),
                 ],
               ),
               child: Column(
                 children: [
-                  // Top Pill Indicator
                   Container(
                     margin: const EdgeInsets.only(top: 12, bottom: 8),
                     height: 5,
@@ -207,8 +242,6 @@ class _FurnitureDetailState extends State<FurnitureDetail>
                       borderRadius: BorderRadius.circular(10),
                     ),
                   ),
-
-                  // Content Area
                   Expanded(
                     child: SingleChildScrollView(
                       physics: const BouncingScrollPhysics(),
@@ -216,18 +249,16 @@ class _FurnitureDetailState extends State<FurnitureDetail>
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Header with Name, Rating and Price
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              // Name and Rating
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      item['name'],
+                                      item.name,
                                       style: const TextStyle(
                                         fontSize: 24,
                                         fontWeight: FontWeight.bold,
@@ -244,7 +275,7 @@ class _FurnitureDetailState extends State<FurnitureDetail>
                                         ),
                                         const SizedBox(width: 4),
                                         Text(
-                                          '${item['rating']}',
+                                          '${item.rating}',
                                           style: const TextStyle(
                                             fontSize: 16,
                                             fontWeight: FontWeight.w600,
@@ -252,7 +283,7 @@ class _FurnitureDetailState extends State<FurnitureDetail>
                                         ),
                                         const SizedBox(width: 8),
                                         Text(
-                                          '(${item['reviews']} reviews)',
+                                          '(${item.reviews} reviews)',
                                           style: TextStyle(
                                             fontSize: 14,
                                             color: Colors.grey[600],
@@ -263,8 +294,6 @@ class _FurnitureDetailState extends State<FurnitureDetail>
                                   ],
                                 ),
                               ),
-
-                              // Price Tag
                               Container(
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 12,
@@ -275,7 +304,7 @@ class _FurnitureDetailState extends State<FurnitureDetail>
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: Text(
-                                  '\$${item['price']}',
+                                  '\$${item.price}',
                                   style: const TextStyle(
                                     fontSize: 18,
                                     fontWeight: FontWeight.bold,
@@ -287,7 +316,6 @@ class _FurnitureDetailState extends State<FurnitureDetail>
                           ),
                           const SizedBox(height: 24),
 
-                          // Tabs for Details, Specs, Reviews - UPDATED
                           Container(
                             decoration: BoxDecoration(
                               color: Colors.grey[100],
@@ -295,7 +323,7 @@ class _FurnitureDetailState extends State<FurnitureDetail>
                             ),
                             child: TabBar(
                               controller: _tabController,
-                              indicator: UnderlineTabIndicator(
+                              indicator: const UnderlineTabIndicator(
                                 borderSide: BorderSide(
                                   color: Colors.deepPurple,
                                   width: 2,
@@ -317,15 +345,13 @@ class _FurnitureDetailState extends State<FurnitureDetail>
                           ),
                           const SizedBox(height: 20),
 
-                          // Tab Content
                           SizedBox(
                             height: 120,
                             child: TabBarView(
                               controller: _tabController,
                               children: [
-                                // Details Tab
                                 Text(
-                                  item['description'],
+                                  item.description,
                                   style: TextStyle(
                                     fontSize: 16,
                                     height: 1.5,
@@ -333,7 +359,6 @@ class _FurnitureDetailState extends State<FurnitureDetail>
                                   ),
                                 ),
 
-                                // Specifications Tab
                                 Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
@@ -353,7 +378,6 @@ class _FurnitureDetailState extends State<FurnitureDetail>
                                   ],
                                 ),
 
-                                // Reviews Tab
                                 Column(
                                   children: [
                                     _buildReviewItem(
@@ -374,7 +398,6 @@ class _FurnitureDetailState extends State<FurnitureDetail>
                           ),
                           const SizedBox(height: 24),
 
-                          // Color Options
                           const Text(
                             'Color',
                             style: TextStyle(
@@ -385,7 +408,7 @@ class _FurnitureDetailState extends State<FurnitureDetail>
                           ),
                           const SizedBox(height: 12),
                           Row(
-                            children: List.generate(item['colors'].length, (
+                            children: List.generate(item.colors.length, (
                               index,
                             ) {
                               return GestureDetector(
@@ -401,7 +424,7 @@ class _FurnitureDetailState extends State<FurnitureDetail>
                                   height: 36,
                                   decoration: BoxDecoration(
                                     shape: BoxShape.circle,
-                                    color: item['colors'][index],
+                                    color: item.colors[index],
                                     border: Border.all(
                                       color:
                                           selectedColorIndex == index
@@ -437,7 +460,6 @@ class _FurnitureDetailState extends State<FurnitureDetail>
                           ),
                           const SizedBox(height: 24),
 
-                          // Quantity Selector
                           Row(
                             children: [
                               const Text(
@@ -466,14 +488,15 @@ class _FurnitureDetailState extends State<FurnitureDetail>
                                         }
                                       },
                                     ),
-                                    Container(
+                                    SizedBox(
                                       width: 40,
-                                      alignment: Alignment.center,
-                                      child: Text(
-                                        '$quantity',
-                                        style: const TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.bold,
+                                      child: Center(
+                                        child: Text(
+                                          '$quantity',
+                                          style: const TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.bold,
+                                          ),
                                         ),
                                       ),
                                     ),
@@ -496,7 +519,6 @@ class _FurnitureDetailState extends State<FurnitureDetail>
                     ),
                   ),
 
-                  // Bottom Action Bar
                   Container(
                     padding: EdgeInsets.fromLTRB(
                       20,
@@ -504,19 +526,18 @@ class _FurnitureDetailState extends State<FurnitureDetail>
                       20,
                       12 + MediaQuery.of(context).padding.bottom,
                     ),
-                    decoration: BoxDecoration(
+                    decoration: const BoxDecoration(
                       color: Colors.white,
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
+                          color: Colors.black12,
                           blurRadius: 10,
-                          offset: const Offset(0, -3),
+                          offset: Offset(0, -3),
                         ),
                       ],
                     ),
                     child: Row(
                       children: [
-                        // View Details Button
                         Container(
                           height: 50,
                           width: 50,
@@ -532,13 +553,11 @@ class _FurnitureDetailState extends State<FurnitureDetail>
                           ),
                         ),
 
-                        // Add to Cart Button
                         Expanded(
                           child: SizedBox(
                             height: 50,
                             child: ElevatedButton(
                               onPressed: () {
-                                // Handle add to cart
                                 _showAddedToCartDialog(context);
                               },
                               style: ElevatedButton.styleFrom(
@@ -598,7 +617,7 @@ class _FurnitureDetailState extends State<FurnitureDetail>
             '$title: ',
             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
           ),
-          Text(value, style: TextStyle(fontSize: 14, color: Colors.grey[700])),
+          Text(value, style: const TextStyle(fontSize: 14, color: Colors.grey)),
         ],
       ),
     );
@@ -606,41 +625,23 @@ class _FurnitureDetailState extends State<FurnitureDetail>
 
   Widget _buildReviewItem(String name, double rating, String comment) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const CircleAvatar(
-                radius: 12,
-                backgroundColor: Colors.deepPurple,
-                child: Icon(Icons.person, size: 16, color: Colors.white),
-              ),
+              Text(name, style: const TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(width: 8),
-              Text(
-                name,
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
-                ),
-              ),
-              const Spacer(),
-              Row(
-                children: [
-                  const Icon(Icons.star, color: Colors.amber, size: 14),
-                  const SizedBox(width: 2),
-                  Text(rating.toString(), style: const TextStyle(fontSize: 12)),
-                ],
-              ),
+              Icon(Icons.star, color: Colors.amber, size: 16),
+              const SizedBox(width: 4),
+              Text('$rating', style: const TextStyle(fontSize: 14)),
             ],
           ),
           const SizedBox(height: 4),
           Text(
             comment,
-            style: TextStyle(fontSize: 13, color: Colors.black),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 14, color: Colors.grey),
           ),
         ],
       ),
@@ -648,82 +649,39 @@ class _FurnitureDetailState extends State<FurnitureDetail>
   }
 
   void _showAddedToCartDialog(BuildContext context) {
-    showModalBottomSheet(
+    showDialog(
       context: context,
-      backgroundColor: Colors.transparent,
-      builder:
-          (context) => Container(
-            padding: const EdgeInsets.all(20),
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 60,
-                  height: 60,
-                  decoration: BoxDecoration(
-                    color: Colors.green[100],
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(Icons.check, color: Colors.green, size: 30),
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'Added to Cart',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '${widget.furnitureItem['name']} has been added to your cart',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.black),
-                ),
-                const SizedBox(height: 20),
-                Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () {
-                          Navigator.pop(context);
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.grey[200],
-                          foregroundColor: Colors.black87,
-                          elevation: 2,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                        ),
-                        child: const Text('Continue Shopping'),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () {
-                          // Navigate to cart
-                          Navigator.pop(context);
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
-                          elevation: 2,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                        ),
-                        child: const Text('View Cart'),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Added to Cart'),
+          content: Text(
+            '${widget.furnitureItem.name} (Quantity: $quantity) has been added to your cart.',
           ),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('Continue Shopping'),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+            ),
+            TextButton(
+              style: TextButton.styleFrom(foregroundColor: Colors.deepPurple),
+              child: const Text('View Cart'),
+              onPressed: () {
+                Navigator.of(context).pop();
+                if (ScaffoldMessenger.of(context) != null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Navigating to cart...'),
+                      duration: Duration(seconds: 1),
+                    ),
+                  );
+                }
+              },
+            ),
+          ],
+        );
+      },
     );
   }
 }

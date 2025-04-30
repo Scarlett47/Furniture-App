@@ -1,7 +1,8 @@
+// login_screen.dart
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:frontend/auth_service.dart';
-import 'package:frontend/routes.dart'; // Import your AppRoutes
+import 'package:frontend/routes.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({Key? key}) : super(key: key);
@@ -18,6 +19,41 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _obscurePassword = true;
   String? _errorMessage;
 
+  // Mongolian translations
+  final Map<String, String> translations = {
+    'welcome_back': 'Тавтай морилно уу',
+    'login_to_account': 'Бүртгэлдээ нэвтрэнэ үү',
+    'email': 'Имэйл',
+    'password': 'Нууц үг',
+    'login': 'Нэвтрэх',
+    'forgot_password': 'Нууц үгээ мартсан?',
+    'no_account': 'Бүртгэлгүй юу? ',
+    'sign_up': 'Бүртгүүлэх',
+    'email_required': 'Имэйлээ оруулна уу',
+    'invalid_email': 'Буруу имэйл формат',
+    'password_required': 'Нууц үгээ оруулна уу',
+    'password_length': 'Нууц үг хамгийн багадаа 6 тэмдэгт байх ёстой',
+    'login_failed': 'Нэвтрэхэд алдаа гарлаа. Дахин оролдоно уу.',
+    'connection_error': 'Интернэт холболтоо шалгана уу',
+  };
+
+  @override
+  void initState() {
+    super.initState();
+    _checkIfAlreadyLoggedIn();
+  }
+
+  Future<void> _checkIfAlreadyLoggedIn() async {
+    try {
+      final isLoggedIn = await AuthService.isLoggedIn();
+      if (isLoggedIn && mounted) {
+        Navigator.pushReplacementNamed(context, AppRoutes.home);
+      }
+    } catch (e) {
+      print('Auto-login check error: $e');
+    }
+  }
+
   @override
   void dispose() {
     _emailController.dispose();
@@ -26,30 +62,40 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _login() async {
-    if (_formKey.currentState!.validate()) {
-      setState(() {
-        _isLoading = true;
-        _errorMessage = null;
-      });
+    if (!_formKey.currentState!.validate()) return;
 
-      try {
-        final response = await AuthService.login(
-          _emailController.text.trim(),
-          _passwordController.text.trim(),
-        );
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
 
-        if (response['success'] == true) {
-          // Save token to secure storage
-          // await SecureStorage.saveToken(response['token']);
+    try {
+      final response = await AuthService.login(
+        _emailController.text.trim(),
+        _passwordController.text.trim(),
+      );
 
-          // Navigate to home using your AppRoutes
+      print('Login response: $response');
+
+      if (response['success'] == true) {
+        if (mounted) {
           Navigator.pushReplacementNamed(context, AppRoutes.home);
-        } else {
-          setState(() => _errorMessage = response['message'] ?? 'Login failed');
         }
-      } catch (e) {
-        setState(() => _errorMessage = 'An error occurred. Please try again.');
-      } finally {
+      } else {
+        setState(() {
+          _errorMessage =
+              response['message'] ??
+              response['error'] ??
+              translations['login_failed'];
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _errorMessage = translations['connection_error'];
+      });
+      print('Login error: $e');
+    } finally {
+      if (mounted) {
         setState(() => _isLoading = false);
       }
     }
@@ -65,7 +111,7 @@ class _LoginScreenState extends State<LoginScreen> {
             decoration: const BoxDecoration(
               image: DecorationImage(
                 image: NetworkImage(
-                  'https://images.pexels.com/photos/5824877/pexels-photo-5824877.jpeg',
+                  'https://hips.hearstapps.com/hmg-prod/images/gonzalez-abreu-alas-architects-gaa-portfolio-interiors-great-room-architectural-detail-design-detail-1501104286-275239-1563558552.jpg?crop=1xw:1xh;center,top&resize=980:*',
                 ),
                 fit: BoxFit.cover,
                 colorFilter: ColorFilter.mode(Colors.black54, BlendMode.darken),
@@ -74,47 +120,148 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
 
           // Content
-          Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Welcome Back',
-                    style: GoogleFonts.playfairDisplay(
-                      fontSize: 36,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
-                  Text(
-                    'Login to your account',
-                    style: GoogleFonts.montserrat(
-                      fontSize: 16,
-                      color: Colors.white70,
-                    ),
-                  ),
-                  const SizedBox(height: 40),
-
-                  // Error message
-                  if (_errorMessage != null)
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      margin: const EdgeInsets.only(bottom: 20),
-                      decoration: BoxDecoration(
-                        color: Colors.red[400]?.withOpacity(0.8),
-                        borderRadius: BorderRadius.circular(8),
+          SafeArea(
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      translations['welcome_back']!,
+                      style: GoogleFonts.playfairDisplay(
+                        fontSize: 36,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
                       ),
-                      child: Row(
+                    ),
+                    Text(
+                      translations['login_to_account']!,
+                      style: GoogleFonts.montserrat(
+                        fontSize: 16,
+                        color: Colors.white70,
+                      ),
+                    ),
+                    const SizedBox(height: 40),
+
+                    // Error message
+                    if (_errorMessage != null) _buildErrorWidget(),
+
+                    // Login Form
+                    Form(
+                      key: _formKey,
+                      child: Column(
                         children: [
-                          const Icon(Icons.error_outline, color: Colors.white),
-                          const SizedBox(width: 8),
-                          Expanded(
+                          TextFormField(
+                            controller: _emailController,
+                            keyboardType: TextInputType.emailAddress,
+                            style: const TextStyle(color: Colors.white),
+                            decoration: _buildInputDecoration(
+                              label: translations['email']!,
+                              icon: Icons.email,
+                            ),
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return translations['email_required'];
+                              }
+                              if (!RegExp(
+                                r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
+                              ).hasMatch(value)) {
+                                return translations['invalid_email'];
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 20),
+                          TextFormField(
+                            controller: _passwordController,
+                            obscureText: _obscurePassword,
+                            style: const TextStyle(color: Colors.white),
+                            decoration: _buildInputDecoration(
+                              label: translations['password']!,
+                              icon: Icons.lock,
+                              isPassword: true,
+                              onToggleVisibility: () {
+                                setState(() {
+                                  _obscurePassword = !_obscurePassword;
+                                });
+                              },
+                            ),
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return translations['password_required'];
+                              }
+                              if (value.length < 6) {
+                                return translations['password_length'];
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 24),
+                          SizedBox(
+                            width: double.infinity,
+                            height: 50,
+                            child: ElevatedButton(
+                              onPressed: _isLoading ? null : _login,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.brown[700],
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              child:
+                                  _isLoading
+                                      ? const CircularProgressIndicator(
+                                        color: Colors.white,
+                                      )
+                                      : Text(
+                                        translations['login']!,
+                                        style: GoogleFonts.montserrat(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          TextButton(
+                            onPressed: () {
+                              Navigator.pushNamed(
+                                context,
+                                AppRoutes.forgotPassword,
+                              );
+                            },
                             child: Text(
-                              _errorMessage!,
+                              translations['forgot_password']!,
                               style: GoogleFonts.montserrat(
+                                color: Colors.white70,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 40),
+                    Center(
+                      child: Wrap(
+                        alignment: WrapAlignment.center,
+                        children: [
+                          Text(
+                            translations['no_account']!,
+                            style: GoogleFonts.montserrat(
+                              color: Colors.white70,
+                            ),
+                          ),
+                          GestureDetector(
+                            onTap: () {
+                              Navigator.pushNamed(context, AppRoutes.register);
+                            },
+                            child: Text(
+                              translations['sign_up']!,
+                              style: GoogleFonts.montserrat(
+                                fontWeight: FontWeight.bold,
                                 color: Colors.white,
                               ),
                             ),
@@ -122,124 +269,32 @@ class _LoginScreenState extends State<LoginScreen> {
                         ],
                       ),
                     ),
-
-                  // Login Form
-                  Form(
-                    key: _formKey,
-                    child: Column(
-                      children: [
-                        TextFormField(
-                          controller: _emailController,
-                          keyboardType: TextInputType.emailAddress,
-                          style: const TextStyle(color: Colors.white),
-                          decoration: _buildInputDecoration(
-                            label: 'Email',
-                            icon: Icons.email,
-                          ),
-                          validator: (value) {
-                            if (value == null || value.isEmpty) {
-                              return 'Please enter your email';
-                            }
-                            if (!RegExp(
-                              r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
-                            ).hasMatch(value)) {
-                              return 'Please enter a valid email';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 20),
-                        TextFormField(
-                          controller: _passwordController,
-                          obscureText: _obscurePassword,
-                          style: const TextStyle(color: Colors.white),
-                          decoration: _buildInputDecoration(
-                            label: 'Password',
-                            icon: Icons.lock,
-                            isPassword: true,
-                            onToggleVisibility: () {
-                              setState(() {
-                                _obscurePassword = !_obscurePassword;
-                              });
-                            },
-                          ),
-                          validator: (value) {
-                            if (value == null || value.isEmpty) {
-                              return 'Please enter your password';
-                            }
-                            if (value.length < 6) {
-                              return 'Password must be at least 6 characters';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 24),
-                        SizedBox(
-                          width: double.infinity,
-                          height: 50,
-                          child: ElevatedButton(
-                            onPressed: _isLoading ? null : _login,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.brown[700],
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                            ),
-                            child:
-                                _isLoading
-                                    ? const CircularProgressIndicator(
-                                      color: Colors.white,
-                                    )
-                                    : Text(
-                                      'Login',
-                                      style: GoogleFonts.montserrat(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        TextButton(
-                          onPressed: () {
-                            Navigator.pushNamed(context, AppRoutes.home);
-                          },
-                          child: Text(
-                            'Forgot Password?',
-                            style: GoogleFonts.montserrat(
-                              color: Colors.white70,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 40),
-                  Center(
-                    child: Wrap(
-                      alignment: WrapAlignment.center,
-                      children: [
-                        Text(
-                          "Don't have an account? ",
-                          style: GoogleFonts.montserrat(color: Colors.white70),
-                        ),
-                        GestureDetector(
-                          onTap: () {
-                            Navigator.pushNamed(context, AppRoutes.register);
-                          },
-                          child: Text(
-                            'Sign Up',
-                            style: GoogleFonts.montserrat(
-                              color: Colors.brown[300],
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildErrorWidget() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      margin: const EdgeInsets.only(bottom: 20),
+      decoration: BoxDecoration(
+        color: Colors.red[400],
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.error_outline, color: Colors.white),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              _errorMessage!,
+              style: GoogleFonts.montserrat(color: Colors.white),
             ),
           ),
         ],
@@ -251,32 +306,32 @@ class _LoginScreenState extends State<LoginScreen> {
     required String label,
     required IconData icon,
     bool isPassword = false,
-    VoidCallback? onToggleVisibility,
+    Function()? onToggleVisibility,
   }) {
     return InputDecoration(
       labelText: label,
-      labelStyle: const TextStyle(color: Colors.white70),
-      prefixIcon: Icon(icon, color: Colors.white70),
+      labelStyle: const TextStyle(color: Colors.white),
+      prefixIcon: Icon(icon, color: Colors.white),
       suffixIcon:
           isPassword
               ? IconButton(
                 icon: Icon(
                   _obscurePassword ? Icons.visibility : Icons.visibility_off,
-                  color: Colors.white70,
+                  color: Colors.white,
                 ),
                 onPressed: onToggleVisibility,
               )
               : null,
+      filled: true,
+      fillColor: Colors.white.withOpacity(0.1),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: Colors.white70),
+        borderSide: BorderSide.none,
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: Colors.white70),
+        borderSide: BorderSide(color: Colors.white.withOpacity(0.3)),
       ),
-      filled: true,
-      fillColor: Colors.black.withOpacity(0.3),
     );
   }
 }

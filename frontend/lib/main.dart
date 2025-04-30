@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:frontend/screens/login.dart';
-import 'package:frontend/screens/profile.dart';
 import 'package:salomon_bottom_bar/salomon_bottom_bar.dart';
-import 'screens/home.dart';
-import 'screens/shopping_cart.dart';
+import 'package:frontend/screens/login.dart';
+import 'package:frontend/screens/register.dart';
+import 'package:frontend/screens/splash.dart';
+import 'package:frontend/screens/home.dart';
+import 'package:frontend/screens/profile.dart';
+import 'package:frontend/screens/shopping_cart.dart';
+import 'package:frontend/routes.dart';
+import 'package:frontend/auth_service.dart';
 
 void main() {
   runApp(const MyApp());
@@ -11,7 +15,7 @@ void main() {
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
-  static final title = 'Sodon Mebel';
+  static final title = 'Содон Мебель';
 
   @override
   Widget build(BuildContext context) {
@@ -19,10 +23,16 @@ class MyApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: title,
       theme: ThemeData(
-        primarySwatch: Colors.purple,
+        primaryColor: Colors.white,
         visualDensity: VisualDensity.adaptivePlatformDensity,
       ),
-      home: const LoginScreen(),
+      initialRoute: AppRoutes.splash,
+      routes: {
+        AppRoutes.splash: (context) => const SplashScreen(),
+        AppRoutes.login: (context) => const LoginScreen(),
+        AppRoutes.register: (context) => const RegisterScreen(),
+        AppRoutes.home: (context) => const MainAppScreen(),
+      },
     );
   }
 }
@@ -36,6 +46,8 @@ class MainAppScreen extends StatefulWidget {
 
 class _MainAppScreenState extends State<MainAppScreen> {
   var _currentIndex = 0;
+  String? _userEmail;
+  String? _username;
 
   final List<Widget> _pages = [
     const HomePage(),
@@ -61,6 +73,29 @@ class _MainAppScreenState extends State<MainAppScreen> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    _loadUserData();
+  }
+
+  Future<void> _loadUserData() async {
+    final userData = await AuthService.getCurrentUser();
+    if (userData != null) {
+      setState(() {
+        _username = userData['username'];
+        _userEmail = userData['email'];
+      });
+    }
+  }
+
+  void _signOut() async {
+    await AuthService.logout();
+    if (mounted) {
+      Navigator.pushReplacementNamed(context, AppRoutes.login);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
@@ -76,7 +111,10 @@ class _MainAppScreenState extends State<MainAppScreen> {
             );
           },
         ),
-        title: const Text('Sodon Mebel', style: TextStyle(color: Colors.black)),
+        title: const Text(
+          'Содон Мебель',
+          style: TextStyle(color: Colors.black),
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.shopping_cart, color: Colors.black),
@@ -106,12 +144,12 @@ class _MainAppScreenState extends State<MainAppScreen> {
                     child: Icon(Icons.person, size: 35, color: Colors.grey),
                   ),
                   const SizedBox(height: 10),
-                  const Text(
-                    'User Name',
+                  Text(
+                    _username ?? 'User Name',
                     style: TextStyle(color: Colors.white, fontSize: 18),
                   ),
-                  const Text(
-                    'user@email.com',
+                  Text(
+                    _userEmail ?? 'user@email.com',
                     style: TextStyle(color: Colors.white70, fontSize: 14),
                   ),
                 ],
@@ -119,27 +157,58 @@ class _MainAppScreenState extends State<MainAppScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.person_outline),
-              title: const Text('Profile'),
-              onTap: () {},
+              title: const Text('Профайл'),
+              onTap: () {
+                Navigator.pop(context);
+                setState(() => _currentIndex = 3); // Switch to profile tab
+              },
             ),
             ListTile(
               leading: const Icon(Icons.shopping_bag_outlined),
-              title: const Text('My Orders'),
-              onTap: () {},
+              title: const Text('Минйи захиалга'),
+              onTap: () {
+                Navigator.pop(context);
+                // Navigate to orders page
+              },
             ),
             ListTile(
               leading: const Icon(Icons.settings),
-              title: const Text('Settings'),
-              onTap: () {},
+              title: const Text('Тохиргоо'),
+              onTap: () {
+                Navigator.pop(context);
+                // Navigate to settings page
+              },
             ),
             const Divider(),
             ListTile(
               leading: const Icon(Icons.logout, color: Colors.red),
-              title: const Text(
-                'Sign Out',
-                style: TextStyle(color: Colors.red),
-              ),
-              onTap: () {},
+              title: const Text('Гарах', style: TextStyle(color: Colors.red)),
+              onTap: () {
+                Navigator.pop(context);
+                showDialog(
+                  context: context,
+                  builder:
+                      (context) => AlertDialog(
+                        title: const Text('Гарах'),
+                        content: const Text(
+                          'Та систем гарахдаа итгэлтэй байна?',
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(context),
+                            child: const Text('Үгүй'),
+                          ),
+                          TextButton(
+                            onPressed: () {
+                              Navigator.pop(context);
+                              _signOut();
+                            },
+                            child: const Text('Тийм'),
+                          ),
+                        ],
+                      ),
+                );
+              },
             ),
           ],
         ),
