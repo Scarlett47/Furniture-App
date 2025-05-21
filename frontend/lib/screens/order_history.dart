@@ -4,7 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 class OrderHistory extends StatefulWidget {
-  const OrderHistory({Key? key}) : super(key: key);
+  const OrderHistory({super.key});
 
   @override
   State<OrderHistory> createState() => _OrderHistoryState();

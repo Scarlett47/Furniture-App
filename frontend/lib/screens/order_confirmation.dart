@@ -9,12 +9,12 @@ class OrderConfirmationScreen extends StatefulWidget {
   final String paymentMethod;
 
   const OrderConfirmationScreen({
-    Key? key,
+    super.key,
     required this.cartItems,
     required this.totalPrice,
     required this.paymentMethod,
     required Map orderData,
-  }) : super(key: key);
+  });
 
   @override
   State<OrderConfirmationScreen> createState() =>

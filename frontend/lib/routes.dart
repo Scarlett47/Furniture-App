@@ -39,7 +39,7 @@ class AppRoutes {
               cartItems: args.cartItems,
               onAddToCart: (data) {
                 args.onAddToCart(data);
-                return null;
+                return;
               },
             ),
           );

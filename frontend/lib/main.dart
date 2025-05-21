@@ -49,7 +49,7 @@ class _MainAppScreenState extends State<MainAppScreen> {
   var _currentIndex = 0;
   String? _userEmail;
   String? _username;
-  List<Map<String, dynamic>> _cart = [];
+  final List<Map<String, dynamic>> _cart = [];
   int _unreadNotifications = 0;
 
   @override

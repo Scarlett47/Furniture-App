@@ -565,7 +565,7 @@ class _FurnitureDetailState extends State<FurnitureDetail>
                           ),
                           const SizedBox(height: 20),
 
-                          Container(
+                          SizedBox(
                             height: MediaQuery.of(context).size.height * 0.3,
                             child: TabBarView(
                               controller: _tabController,

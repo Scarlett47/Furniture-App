@@ -8,8 +8,7 @@ import 'dart:convert';
 class ProfileScreen extends StatefulWidget {
   final VoidCallback onNavigateToOrderHistory;
 
-  const ProfileScreen({Key? key, required this.onNavigateToOrderHistory})
-    : super(key: key);
+  const ProfileScreen({super.key, required this.onNavigateToOrderHistory});
 
   @override
   _ProfileScreenState createState() => _ProfileScreenState();

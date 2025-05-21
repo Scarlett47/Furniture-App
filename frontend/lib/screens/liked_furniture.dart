@@ -6,7 +6,7 @@ import '../routes.dart';
 import 'furniture_detail.dart';
 
 class LikedFurniture extends StatefulWidget {
-  const LikedFurniture({Key? key}) : super(key: key);
+  const LikedFurniture({super.key});
 
   @override
   State<LikedFurniture> createState() => _LikedFurnitureState();
