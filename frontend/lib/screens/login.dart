@@ -75,29 +75,41 @@ class _LoginScreenState extends State<LoginScreen> {
         _passwordController.text.trim(),
       );
 
-      print('Login response: $response');
+      if (!mounted) return;
 
       if (response['success'] == true) {
-        if (mounted) {
+        // Clear any existing error messages
+        setState(() => _errorMessage = null);
+
+        // Ensure we have a valid token before navigation
+        final isValid = await AuthService.isLoggedIn();
+        if (!mounted) return;
+
+        if (isValid) {
           Navigator.pushReplacementNamed(context, AppRoutes.home);
+        } else {
+          setState(() {
+            _errorMessage =
+                translations['auth_error'] ?? 'Authentication failed';
+            _isLoading = false;
+          });
         }
       } else {
         setState(() {
           _errorMessage =
-              response['message'] ??
+              translations[response['error']] ??
               response['error'] ??
               translations['login_failed'];
+          _isLoading = false;
         });
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() {
-        _errorMessage = translations['connection_error'];
+        _errorMessage =
+            translations['connection_error'] ?? 'Connection error occurred';
+        _isLoading = false;
       });
-      print('Login error: $e');
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
     }
   }
 

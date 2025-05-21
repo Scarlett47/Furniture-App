@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
-import 'screens/login.dart' as login_screen; // Add prefix for LoginScreen
+import 'screens/login.dart' as login_screen;
 import 'screens/register.dart';
 import 'screens/home.dart';
 import 'screens/furniture_detail.dart';
 import 'screens/order_confirmation.dart';
 import 'screens/checkout_screen.dart';
-import 'screens/profile.dart'; // Import ProfileScreen without hiding LoginScreen
+import 'screens/profile.dart';
 import 'screens/shopping_cart.dart';
 import 'screens/splash.dart';
 import 'screens/forgot_password.dart';
+import 'main.dart';
 
-// Route names
 class AppRoutes {
   static const String splash = '/';
   static const String login = '/login';
@@ -23,45 +23,79 @@ class AppRoutes {
   static const String checkout = '/checkout';
   static const String orders = '/orders';
 
-  // Route generator
   static Route<dynamic> generateRoute(RouteSettings settings) {
     switch (settings.name) {
       case login:
-        return _buildRoute(const login_screen.LoginScreen()); // Use prefix
+        return _buildRoute(const login_screen.LoginScreen());
       case register:
         return _buildRoute(const RegisterScreen());
       case forgotPassword:
         return _buildRoute(const ForgotPasswordScreen());
       case home:
-        return _buildRoute(const HomePage());
+        if (settings.arguments != null) {
+          final args = settings.arguments as HomePageArgs;
+          return _buildRoute(
+            HomePage(
+              cartItems: args.cartItems,
+              onAddToCart: (data) {
+                args.onAddToCart(data);
+                return null;
+              },
+            ),
+          );
+        }
+        return _buildRoute(const MainAppScreen());
       case productDetails:
         if (settings.arguments is! ProductDetailArguments) {
           return _errorRoute('Invalid arguments for product detail');
         }
         final args = settings.arguments as ProductDetailArguments;
         final furnitureItem = FurnitureItem.fromMap(args.product);
-        return _buildRoute(FurnitureDetail(furnitureItem: furnitureItem));
+        return _buildRoute(
+          FurnitureDetail(
+            furnitureItem: furnitureItem,
+            onAddToCart: (FurnitureItem item, int quantity) {
+              // Handle add to cart logic here
+              print('${item.name} added to cart with quantity $quantity');
+            },
+          ),
+        );
       case cart:
-        return _buildRoute(const CartScreen(cartItems: []));
+        final args = settings.arguments as List<Map<String, dynamic>>?;
+        return _buildRoute(CartScreen(cartItems: args ?? []));
       case checkout:
-        return _buildRoute(const CheckoutScreen(cartItems: []));
+        final args = settings.arguments as List<Map<String, dynamic>>?;
+        return _buildRoute(
+          CheckoutScreen(cartItems: args ?? [], onOrderConfirmed: () {}),
+        );
       case profile:
-        return _buildRoute(const ProfileScreen());
+        return _buildRoute(
+          ProfileScreen(
+            onNavigateToOrderHistory: () {
+              // Handle navigation to order history
+            },
+          ),
+        );
       case orders:
         return _buildRoute(
-          OrderConfirmationScreen(orderNumber: '12345', total: 0.0),
+          OrderConfirmationScreen(
+            orderData: {},
+            cartItems: [],
+            totalPrice: 0,
+            paymentMethod: '',
+          ),
         );
+      case splash:
+        return _buildRoute(const SplashScreen());
       default:
         return _errorRoute('No route defined for ${settings.name}');
     }
   }
 
-  // Helper method for building routes
   static MaterialPageRoute<T> _buildRoute<T>(Widget widget) {
     return MaterialPageRoute<T>(builder: (_) => widget);
   }
 
-  // Helper method for error routes
   static MaterialPageRoute<dynamic> _errorRoute(String message) {
     return MaterialPageRoute(
       builder:
@@ -82,9 +116,15 @@ class AppRoutes {
   }
 }
 
-// Argument classes
 class ProductDetailArguments {
   final Map<String, dynamic> product;
 
   ProductDetailArguments({required this.product});
+}
+
+class HomePageArgs {
+  final List<Map<String, dynamic>> cartItems;
+  final void Function(dynamic) onAddToCart;
+
+  HomePageArgs({required this.cartItems, required this.onAddToCart});
 }

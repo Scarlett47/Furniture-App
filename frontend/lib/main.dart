@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:salomon_bottom_bar/salomon_bottom_bar.dart';
-import 'package:frontend/screens/login.dart';
-import 'package:frontend/screens/register.dart';
-import 'package:frontend/screens/splash.dart';
-import 'package:frontend/screens/home.dart';
-import 'package:frontend/screens/profile.dart';
-import 'package:frontend/screens/shopping_cart.dart';
 import 'package:frontend/routes.dart';
 import 'package:frontend/auth_service.dart';
+import 'package:frontend/screens/home.dart';
+import 'package:frontend/screens/liked_furniture.dart';
+import 'package:frontend/screens/notifications.dart';
+import 'package:frontend/screens/profile.dart';
+import 'package:frontend/screens/order_history.dart';
+import 'package:frontend/screens/checkout_screen.dart';
+import 'package:salomon_bottom_bar/salomon_bottom_bar.dart';
 
 void main() {
   runApp(const MyApp());
@@ -27,11 +27,12 @@ class MyApp extends StatelessWidget {
         visualDensity: VisualDensity.adaptivePlatformDensity,
       ),
       initialRoute: AppRoutes.splash,
-      routes: {
-        AppRoutes.splash: (context) => const SplashScreen(),
-        AppRoutes.login: (context) => const LoginScreen(),
-        AppRoutes.register: (context) => const RegisterScreen(),
-        AppRoutes.home: (context) => const MainAppScreen(),
+      routes: {AppRoutes.home: (context) => const MainAppScreen()},
+      onGenerateRoute: (settings) {
+        if (settings.name == AppRoutes.home && settings.arguments != null) {
+          return AppRoutes.generateRoute(settings);
+        }
+        return AppRoutes.generateRoute(settings);
       },
     );
   }
@@ -48,34 +49,14 @@ class _MainAppScreenState extends State<MainAppScreen> {
   var _currentIndex = 0;
   String? _userEmail;
   String? _username;
-
-  final List<Widget> _pages = [
-    const HomePage(),
-    const Center(child: Text("Likes Page")),
-    const Center(child: Text("Notifications")),
-    const ProfileScreen(),
-  ];
-
-  // Sample cart items for testing
-  final List<Map<String, dynamic>> _cartItems = [
-    {
-      'name': 'Modern Chair',
-      'price': 120.0,
-      'quantity': 1,
-      'image': 'https://via.placeholder.com/100',
-    },
-    {
-      'name': 'Wooden Table',
-      'price': 250.0,
-      'quantity': 2,
-      'image': 'https://via.placeholder.com/100',
-    },
-  ];
+  List<Map<String, dynamic>> _cart = [];
+  int _unreadNotifications = 0;
 
   @override
   void initState() {
     super.initState();
     _loadUserData();
+    _checkNotifications();
   }
 
   Future<void> _loadUserData() async {
@@ -88,6 +69,14 @@ class _MainAppScreenState extends State<MainAppScreen> {
     }
   }
 
+  Future<void> _checkNotifications() async {
+    // This will be implemented to check for unread notifications
+    // For now, we'll use a dummy value
+    setState(() {
+      _unreadNotifications = 2;
+    });
+  }
+
   void _signOut() async {
     await AuthService.logout();
     if (mounted) {
@@ -95,8 +84,44 @@ class _MainAppScreenState extends State<MainAppScreen> {
     }
   }
 
+  void _addToCart(Map<String, dynamic> item) {
+    final index = _cart.indexWhere((e) => e['id'] == item['id']);
+    setState(() {
+      if (index != -1) {
+        _cart[index]['quantity'] += 1;
+      } else {
+        _cart.add({
+          'id': item['id'],
+          'name': item['title'],
+          'price': double.parse(item['price'].toString()),
+          'image': item['pic'],
+          'quantity': 1,
+        });
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
+    final List<Widget> pages = [
+      HomePage(
+        cartItems: _cart,
+        onAddToCart: (dynamic item) {
+          _addToCart(item);
+        },
+      ),
+      const LikedFurniture(),
+      const NotificationsScreen(),
+      ProfileScreen(
+        onNavigateToOrderHistory: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const OrderHistory()),
+          );
+        },
+      ),
+    ];
+
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.white,
@@ -116,16 +141,52 @@ class _MainAppScreenState extends State<MainAppScreen> {
           style: TextStyle(color: Colors.black),
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.shopping_cart, color: Colors.black),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => CartScreen(cartItems: _cartItems),
+          Stack(
+            children: [
+              IconButton(
+                icon: const Icon(
+                  Icons.shopping_cart_outlined,
+                  color: Colors.black,
                 ),
-              );
-            },
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder:
+                          (context) => CheckoutScreen(
+                            cartItems: _cart,
+                            onOrderConfirmed: () {
+                              setState(() {
+                                _cart.clear();
+                              });
+                            },
+                          ),
+                    ),
+                  );
+                },
+              ),
+              if (_cart.isNotEmpty)
+                Positioned(
+                  right: 8,
+                  top: 8,
+                  child: Container(
+                    padding: const EdgeInsets.all(2),
+                    decoration: BoxDecoration(
+                      color: Colors.red,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    constraints: const BoxConstraints(
+                      minWidth: 14,
+                      minHeight: 14,
+                    ),
+                    child: Text(
+                      '${_cart.length}',
+                      style: const TextStyle(color: Colors.white, fontSize: 8),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+            ],
           ),
         ],
       ),
@@ -134,7 +195,7 @@ class _MainAppScreenState extends State<MainAppScreen> {
           padding: EdgeInsets.zero,
           children: [
             DrawerHeader(
-              decoration: BoxDecoration(color: Colors.green[200]),
+              decoration: BoxDecoration(color: Colors.deepPurple[100]),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -145,12 +206,12 @@ class _MainAppScreenState extends State<MainAppScreen> {
                   ),
                   const SizedBox(height: 10),
                   Text(
-                    _username ?? 'User Name',
-                    style: TextStyle(color: Colors.white, fontSize: 18),
+                    _username ?? 'Хэрэглэгч',
+                    style: const TextStyle(color: Colors.black87, fontSize: 18),
                   ),
                   Text(
-                    _userEmail ?? 'user@email.com',
-                    style: TextStyle(color: Colors.white70, fontSize: 14),
+                    _userEmail ?? 'email@example.com',
+                    style: TextStyle(color: Colors.grey[700], fontSize: 14),
                   ),
                 ],
               ),
@@ -160,23 +221,26 @@ class _MainAppScreenState extends State<MainAppScreen> {
               title: const Text('Профайл'),
               onTap: () {
                 Navigator.pop(context);
-                setState(() => _currentIndex = 3); // Switch to profile tab
+                setState(() => _currentIndex = 3);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.favorite_border),
+              title: const Text('Таалагдсан'),
+              onTap: () {
+                Navigator.pop(context);
+                setState(() => _currentIndex = 1);
               },
             ),
             ListTile(
               leading: const Icon(Icons.shopping_bag_outlined),
-              title: const Text('Минйи захиалга'),
+              title: const Text('Захиалгын түүх'),
               onTap: () {
                 Navigator.pop(context);
-                // Navigate to orders page
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.settings),
-              title: const Text('Тохиргоо'),
-              onTap: () {
-                Navigator.pop(context);
-                // Navigate to settings page
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const OrderHistory()),
+                );
               },
             ),
             const Divider(),
@@ -191,7 +255,7 @@ class _MainAppScreenState extends State<MainAppScreen> {
                       (context) => AlertDialog(
                         title: const Text('Гарах'),
                         content: const Text(
-                          'Та систем гарахдаа итгэлтэй байна?',
+                          'Та системээс гарахдаа итгэлтэй байна уу?',
                         ),
                         actions: [
                           TextButton(
@@ -213,29 +277,57 @@ class _MainAppScreenState extends State<MainAppScreen> {
           ],
         ),
       ),
-      body: _pages[_currentIndex],
+      body: pages[_currentIndex],
       bottomNavigationBar: SalomonBottomBar(
         currentIndex: _currentIndex,
         onTap: (i) => setState(() => _currentIndex = i),
         items: [
           SalomonBottomBarItem(
-            icon: const Icon(Icons.home),
-            title: const Text("Home"),
-            selectedColor: Colors.purple,
+            icon: const Icon(Icons.home_outlined),
+            title: const Text("Нүүр"),
+            selectedColor: Colors.deepPurple,
           ),
           SalomonBottomBarItem(
             icon: const Icon(Icons.favorite_border),
-            title: const Text("Likes"),
+            title: const Text("Таалагдсан"),
             selectedColor: Colors.pink,
           ),
           SalomonBottomBarItem(
-            icon: const Icon(Icons.notifications),
-            title: const Text("Notifications"),
+            icon: Stack(
+              children: [
+                const Icon(Icons.notifications_outlined),
+                if (_unreadNotifications > 0)
+                  Positioned(
+                    right: 0,
+                    top: 0,
+                    child: Container(
+                      padding: const EdgeInsets.all(1),
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      constraints: const BoxConstraints(
+                        minWidth: 12,
+                        minHeight: 12,
+                      ),
+                      child: Text(
+                        '$_unreadNotifications',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 8,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            title: const Text("Мэдэгдэл"),
             selectedColor: Colors.orange,
           ),
           SalomonBottomBarItem(
-            icon: const Icon(Icons.person),
-            title: const Text("Profile"),
+            icon: const Icon(Icons.person_outline),
+            title: const Text("Профайл"),
             selectedColor: Colors.teal,
           ),
         ],

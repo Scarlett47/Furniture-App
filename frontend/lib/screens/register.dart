@@ -72,15 +72,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
       );
 
       if (response['success'] == true) {
-        Navigator.pushReplacementNamed(context, AppRoutes.home);
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, AppRoutes.home);
+        }
       } else {
-        setState(() {
-          _errorMessage =
-              response['message'] ?? translations['register_failed'];
-        });
+        if (mounted) {
+          setState(() {
+            // Show specific error message from backend if available
+            _errorMessage = response['message'];
+          });
+        }
       }
     } catch (e) {
-      setState(() => _errorMessage = translations['connection_error']);
+      if (mounted) {
+        setState(() => _errorMessage = translations['connection_error']);
+      }
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);

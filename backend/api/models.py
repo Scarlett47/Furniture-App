@@ -6,8 +6,10 @@ import base64
 from django.core.files.base import ContentFile
 
 class User(AbstractUser):
-    phone = models.CharField(max_length=20, blank=True)
-    address = models.TextField(blank=True)
+    email = models.EmailField(unique=True)
+    phone = models.CharField(max_length=20, blank=True, null=True)
+    address = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
     account_pic = models.TextField(blank=True)  # Base64 encoded
     is_admin = models.BooleanField(default=False)
     
@@ -67,6 +69,8 @@ class OrderItem(models.Model):
     furniture = models.ForeignKey(Furniture, on_delete=models.CASCADE)
     quantity = models.PositiveIntegerField(default=1)
     price_at_purchase = models.DecimalField(max_digits=10, decimal_places=2)
+    is_paid = models.BooleanField(default=False)
+
     
     def __str__(self):
         return f"{self.quantity}x {self.furniture.title}"
@@ -85,3 +89,80 @@ class Review(models.Model):
     
     def __str__(self):
         return f"Review by {self.user.email} for {self.furniture.title}"
+
+
+class Like(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    furniture = models.ForeignKey(Furniture, on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('user', 'furniture')
+class Notification(models.Model):
+    NOTIFICATION_TYPES = [
+        ('ORDER', 'Order Update'),
+        ('DELIVERY', 'Delivery Update'),
+        ('PAYMENT', 'Payment Update'),
+        ('PROMOTION', 'Promotion'),
+    ]
+    
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='notifications')
+    title = models.CharField(max_length=200)
+    message = models.TextField()
+    type = models.CharField(max_length=20, choices=NOTIFICATION_TYPES)
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_read = models.BooleanField(default=False)
+    
+    class Meta:
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"{self.type} - {self.title} for {self.user.username}"
+    
+    @classmethod
+    def get_unread_count(cls, user):
+        """Get the number of unread notifications for a user"""
+        return cls.objects.filter(user=user, is_read=False).count()
+    
+    @classmethod
+    def mark_all_as_read(cls, user):
+        """Mark all notifications as read for a user"""
+        cls.objects.filter(user=user, is_read=False).update(is_read=True)
+        
+    @classmethod
+    def create_order_notification(cls, user, order, status):
+        """Create a notification for an order status change"""
+        status_messages = {
+            'PROCESSING': 'Таны захиалгыг боловсруулж эхэллээ.',
+            'SHIPPED': 'Таны захиалга хүргэлтэнд гарлаа.',
+            'DELIVERED': 'Таны захиалга амжилттай хүргэгдлээ.',
+            'CANCELLED': 'Таны захиалга цуцлагдлаа.',
+        }
+        
+        if status in status_messages:
+            cls.objects.create(
+                user=user,
+                type='ORDER',
+                title=f'Захиалгын төлөв өөрчлөгдлөө: {status}',
+                message=status_messages[status]
+            )
+
+class Cart(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Cart - {self.user.email}"
+
+class CartItem(models.Model):
+    cart = models.ForeignKey(Cart, related_name='items', on_delete=models.CASCADE)
+    furniture = models.ForeignKey(Furniture, on_delete=models.CASCADE)
+    quantity = models.PositiveIntegerField(default=1)
+    added_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ['cart', 'furniture']
+
+    def __str__(self):
+        return f"{self.quantity}x {self.furniture.title} in {self.cart}"

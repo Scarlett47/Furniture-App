@@ -25,10 +25,18 @@ class _SplashScreenState extends State<SplashScreen> {
     final isLoggedIn = await AuthService.isLoggedIn();
 
     if (mounted) {
-      Navigator.pushReplacementNamed(
-        context,
-        isLoggedIn ? AppRoutes.home : AppRoutes.login,
-      );
+      if (isLoggedIn) {
+        Navigator.pushReplacementNamed(
+          context,
+          AppRoutes.home,
+          arguments: HomePageArgs(
+            cartItems: [],
+            onAddToCart: (_) {}, // This will be handled by MainAppScreen
+          ),
+        );
+      } else {
+        Navigator.pushReplacementNamed(context, AppRoutes.login);
+      }
     }
   }
 

@@ -1,12 +1,20 @@
+// Like toggle боломж нэмсэн хувилбар
 import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../auth_service.dart';
 import 'package:frontend/screens/furniture_detail.dart';
 
 class HomePage extends StatefulWidget {
-  const HomePage({super.key});
+  final List<Map<String, dynamic>> cartItems;
+  final void Function(Map<String, dynamic> item) onAddToCart;
+
+  const HomePage({
+    super.key,
+    required this.cartItems,
+    required this.onAddToCart,
+  });
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -14,6 +22,8 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   List<dynamic> furnitureItems = [];
+  Set<int> likedFurnitureIds = {}; // Таалагдсан ID-ууд
+
   List<Map<String, dynamic>> categories = [
     {
       'icon': Icons.all_inclusive,
@@ -68,13 +78,10 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     _fetchFurniture();
+    _loadLikedFurnitureIds();
   }
 
   Future<void> _fetchFurniture() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
     try {
       final response = await http.get(
         Uri.parse('http://127.0.0.1:8000/api/furniture/'),
@@ -99,375 +106,334 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  // Filter furniture items based on the selected category and search query
-  List<dynamic> get _filteredFurniture {
-    String searchQuery = _searchController.text.toLowerCase();
-
-    // First filter by category if not "All"
-    List<dynamic> categoryFiltered = furnitureItems;
-    if (_selectedCategoryIndex > 0) {
-      final selectedCategoryDbName =
-          categories[_selectedCategoryIndex]['dbName'];
-      categoryFiltered =
-          furnitureItems.where((item) {
-            return item['category']['name'] == selectedCategoryDbName;
-          }).toList();
+  Future<void> _loadLikedFurnitureIds() async {
+    final token = await AuthService.getToken();
+    if (token == null) return;
+    final res = await http.get(
+      Uri.parse('http://127.0.0.1:8000/api/furniture/liked/'),
+      headers: {'Authorization': 'Token $token'},
+    );
+    if (res.statusCode == 200) {
+      final data = jsonDecode(res.body);
+      setState(() {
+        likedFurnitureIds = data.map<int>((e) => e['id'] as int).toSet();
+      });
     }
-
-    // Then filter by search query if not empty
-    if (searchQuery.isNotEmpty) {
-      return categoryFiltered.where((item) {
-        return item['title'].toLowerCase().contains(searchQuery) ||
-            item['category']['name'].toLowerCase().contains(searchQuery);
-      }).toList();
-    }
-
-    return categoryFiltered;
   }
 
-  @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
+  List<dynamic> get _filteredFurniture {
+    String searchQuery = _searchController.text.toLowerCase();
+    List<dynamic> filtered = furnitureItems;
+
+    if (_selectedCategoryIndex > 0) {
+      final dbName = categories[_selectedCategoryIndex]['dbName'];
+      filtered =
+          filtered.where((item) => item['category']['name'] == dbName).toList();
+    }
+
+    if (searchQuery.isNotEmpty) {
+      filtered =
+          filtered
+              .where(
+                (item) => item['title'].toLowerCase().contains(searchQuery),
+              )
+              .toList();
+    }
+    return filtered;
+  }
+
+  Future<void> _toggleLike(int id) async {
+    final token = await AuthService.getToken();
+    if (token == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Та эхлээд нэвтэрнэ үү.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    // Optimistically update the UI
+    final isCurrentlyLiked = likedFurnitureIds.contains(id);
+    setState(() {
+      if (isCurrentlyLiked) {
+        likedFurnitureIds.remove(id);
+      } else {
+        likedFurnitureIds.add(id);
+      }
+    });
+
+    try {
+      final response = await http.post(
+        Uri.parse('http://127.0.0.1:8000/api/furniture/$id/toggle_like/'),
+        headers: {'Authorization': 'Token $token'},
+      );
+
+      if (response.statusCode != 200) {
+        // Revert the optimistic update if the API call fails
+        setState(() {
+          if (isCurrentlyLiked) {
+            likedFurnitureIds.add(id);
+          } else {
+            likedFurnitureIds.remove(id);
+          }
+        });
+        print('Error toggling like: ${response.statusCode}');
+      }
+    } catch (e) {
+      // Revert the optimistic update if an exception occurs
+      setState(() {
+        if (isCurrentlyLiked) {
+          likedFurnitureIds.add(id);
+        } else {
+          likedFurnitureIds.remove(id);
+        }
+      });
+      print('Error toggling like: $e');
+    }
   }
 
   Future<Uint8List?> _decodeBase64Image(String base64String) async {
-    if (base64String == 'base64') {
-      return null;
-    }
     try {
       final cleanedBase64 = base64String.split(',').last;
       return base64Decode(cleanedBase64);
     } catch (e) {
-      print('Зураг decode хийхэд алдаа гарлаа: $e');
       return null;
+    }
+  }
+
+  void _handleAddToCart(dynamic item) async {
+    try {
+      final isLoggedIn = await AuthService.isLoggedIn();
+      if (!mounted) return;
+
+      if (!isLoggedIn) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Та нэвтрэх шаардлагатай'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      final token = await AuthService.getToken();
+      if (token == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Та нэвтрэх шаардлагатай'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      final cartData = {
+        "furniture_id": item['id'],
+        "quantity": 1,
+        "price": item['price'],
+      };
+
+      final response = await http.post(
+        Uri.parse("http://127.0.0.1:8000/api/cart/add-item/"),
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Token $token",
+        },
+        body: jsonEncode(cartData),
+      );
+
+      if (response.statusCode == 201) {
+        final cartItem = Map<String, dynamic>.from({
+          'id': item['id'],
+          'title': item['title'],
+          'price': item['price'],
+          'quantity': 1,
+          'image': item['pic'],
+        });
+        widget.onAddToCart(cartItem);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${item['title']} амжилттай сагсанд нэмэгдлээ'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        final errorData = jsonDecode(response.body);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(errorData['error'] ?? 'Алдаа гарлаа'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Алдаа гарлаа: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.grey[50],
-      body: SafeArea(
-        child:
-            _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : _errorMessage != null
-                ? Center(child: Text(_errorMessage!))
-                : SingleChildScrollView(
-                  physics: const BouncingScrollPhysics(),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Хайлтын хэсэг
-                        SizedBox(
-                          height: 50,
-                          child: TextField(
-                            controller: _searchController,
-                            decoration: InputDecoration(
-                              filled: true,
-                              fillColor: Colors.white,
-                              prefixIcon: const Icon(
-                                Icons.search,
-                                color: Colors.grey,
-                              ),
-                              hintText: 'Тавилга хайх...',
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: BorderSide.none,
-                              ),
-                              contentPadding: const EdgeInsets.symmetric(
-                                vertical: 0,
-                              ),
-                            ),
-                            onChanged: (value) {
-                              setState(() {});
-                            },
-                          ),
+    return SafeArea(
+      child:
+          _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : _errorMessage != null
+              ? Center(child: Text(_errorMessage!))
+              : SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextField(
+                      controller: _searchController,
+                      decoration: InputDecoration(
+                        filled: true,
+                        fillColor: Colors.white,
+                        prefixIcon: const Icon(Icons.search),
+                        hintText: 'Тавилга хайх...',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
                         ),
-                        const SizedBox(height: 20),
-
-                        // Ангилалын хэсэг
-                        const Text(
-                          'Ангилал',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.black87,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        SizedBox(
-                          height: 90,
-                          child: ListView.builder(
-                            scrollDirection: Axis.horizontal,
-                            itemCount: categories.length,
-                            itemBuilder: (context, index) {
-                              return GestureDetector(
-                                onTap: () {
-                                  setState(() {
-                                    _selectedCategoryIndex = index;
-                                  });
-                                },
-                                child: _buildCategoryBox(
-                                  categories[index]['name'],
-                                  categories[index]['icon'],
-                                  categories[index]['color'],
-                                  isSelected: _selectedCategoryIndex == index,
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-
-                        // Онцлох бүтээгдэхүүн
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Text(
-                              'Онцлох бүтээгдэхүүн',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.black87,
-                              ),
-                            ),
-                            TextButton(
-                              onPressed: () {},
-                              style: TextButton.styleFrom(
-                                minimumSize: Size.zero,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 8,
-                                ),
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              ),
-                              child: const Text(
-                                'Бүгдийг харах',
-                                style: TextStyle(
-                                  color: Colors.deepPurple,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-
-                        // Бүтээгдэхүүний grid
-                        _filteredFurniture.isEmpty
-                            ? Center(
-                              child: Padding(
-                                padding: const EdgeInsets.all(20.0),
-                                child: Text(
-                                  'Тавилга олдсонгүй',
-                                  style: TextStyle(
-                                    color: Colors.grey[600],
-                                    fontSize: 16,
-                                  ),
-                                ),
-                              ),
-                            )
-                            : GridView.builder(
-                              shrinkWrap: true,
-                              physics: const NeverScrollableScrollPhysics(),
-                              gridDelegate:
-                                  const SliverGridDelegateWithFixedCrossAxisCount(
-                                    crossAxisCount: 2,
-                                    crossAxisSpacing: 12,
-                                    mainAxisSpacing: 16,
-                                    childAspectRatio: 0.75,
-                                  ),
-                              itemCount: _filteredFurniture.length,
-                              itemBuilder: (context, index) {
-                                return _buildFurnitureCard(
-                                  _filteredFurniture[index],
-                                );
-                              },
-                            ),
-                        const SizedBox(height: 20),
-
-                        // Урамшуулалын баннер
-                        Container(
-                          height: 140,
-                          width: double.infinity,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(16),
-                            color: Colors.grey[300],
-                          ),
-                          child: Stack(
-                            children: [
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(16),
-                                child: Image.network(
-                                  'https://images.pexels.com/photos/584399/living-room-couch-interior-room-584399.jpeg',
-                                  width: double.infinity,
-                                  height: 140,
-                                  fit: BoxFit.cover,
-                                  loadingBuilder: (
-                                    context,
-                                    child,
-                                    loadingProgress,
-                                  ) {
-                                    if (loadingProgress == null) return child;
-                                    return Center(
-                                      child: CircularProgressIndicator(
-                                        value:
-                                            loadingProgress
-                                                        .expectedTotalBytes !=
-                                                    null
-                                                ? loadingProgress
-                                                        .cumulativeBytesLoaded /
-                                                    loadingProgress
-                                                        .expectedTotalBytes!
-                                                : null,
-                                      ),
-                                    );
-                                  },
-                                  errorBuilder:
-                                      (context, error, stackTrace) => Container(
-                                        color: Colors.grey[300],
-                                        alignment: Alignment.center,
-                                        child: const Icon(
-                                          Icons.image_not_supported,
-                                        ),
-                                      ),
-                                ),
-                              ),
-                              Container(
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(16),
-                                  gradient: LinearGradient(
-                                    begin: Alignment.centerLeft,
-                                    end: Alignment.centerRight,
-                                    colors: [
-                                      Colors.black.withOpacity(0.7),
-                                      Colors.black.withOpacity(0.3),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                              Padding(
-                                padding: const EdgeInsets.all(16),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    const Text(
-                                      'Хавар улирлын цуглуулга',
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 6),
-                                    const Text(
-                                      '40% хүртэл хямдралтай',
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 22,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 10),
-                                    ElevatedButton(
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: Colors.white,
-                                        foregroundColor: Colors.black,
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(
-                                            20,
-                                          ),
-                                        ),
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 16,
-                                          vertical: 6,
-                                        ),
-                                        minimumSize: const Size(80, 32),
-                                      ),
-                                      onPressed: () {},
-                                      child: const Text(
-                                        'Дэлгүүр',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 12,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                      ],
+                      ),
+                      onChanged: (_) => setState(() {}),
                     ),
-                  ),
+                    const SizedBox(height: 20),
+                    const Text(
+                      'Ангилал',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      height: 90,
+                      child: ListView.builder(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: categories.length,
+                        itemBuilder: (context, index) {
+                          final cat = categories[index];
+                          final isSelected = _selectedCategoryIndex == index;
+                          return GestureDetector(
+                            onTap:
+                                () => setState(
+                                  () => _selectedCategoryIndex = index,
+                                ),
+                            child: Container(
+                              width: 75,
+                              margin: const EdgeInsets.only(right: 10),
+                              child: Column(
+                                children: [
+                                  Container(
+                                    width: 55,
+                                    height: 55,
+                                    decoration: BoxDecoration(
+                                      color:
+                                          isSelected
+                                              ? cat['color'].withOpacity(0.2)
+                                              : Colors.grey[100],
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                        color:
+                                            isSelected
+                                                ? cat['color']
+                                                : Colors.transparent,
+                                        width: 2,
+                                      ),
+                                    ),
+                                    child: Icon(
+                                      cat['icon'],
+                                      color:
+                                          isSelected
+                                              ? cat['color']
+                                              : Colors.grey[700],
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    cat['name'],
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight:
+                                          isSelected
+                                              ? FontWeight.bold
+                                              : FontWeight.normal,
+                                      color:
+                                          isSelected
+                                              ? cat['color']
+                                              : Colors.grey[700],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    const Text(
+                      'Онцлох бүтээгдэхүүн',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    _filteredFurniture.isEmpty
+                        ? const Center(child: Text('Тавилга олдсонгүй'))
+                        : GridView.builder(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: _filteredFurniture.length,
+                          gridDelegate:
+                              const SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: 2,
+                                crossAxisSpacing: 12,
+                                mainAxisSpacing: 16,
+                                childAspectRatio: 0.75,
+                              ),
+                          itemBuilder: (context, index) {
+                            final item = _filteredFurniture[index];
+                            return _buildFurnitureCard(item);
+                          },
+                        ),
+                  ],
                 ),
-      ),
-    );
-  }
-
-  Widget _buildCategoryBox(
-    String title,
-    IconData icon,
-    Color color, {
-    bool isSelected = false,
-  }) {
-    return Container(
-      width: 75,
-      margin: const EdgeInsets.only(right: 10),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 55,
-            height: 55,
-            decoration: BoxDecoration(
-              color: isSelected ? color.withOpacity(0.2) : Colors.grey[100],
-              borderRadius: BorderRadius.circular(12),
-              border:
-                  isSelected
-                      ? Border.all(color: color, width: 2)
-                      : Border.all(color: Colors.transparent),
-            ),
-            child: Icon(
-              icon,
-              size: 26,
-              color: isSelected ? color : Colors.grey[700],
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-              color: isSelected ? color : Colors.grey[700],
-            ),
-            textAlign: TextAlign.center,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ],
-      ),
+              ),
     );
   }
 
   Widget _buildFurnitureCard(dynamic item) {
+    final bool isLiked = likedFurnitureIds.contains(item['id']);
+
     return GestureDetector(
       onTap: () {
         Navigator.push(
           context,
           MaterialPageRoute(
             builder:
-                (context) =>
-                    FurnitureDetail(furnitureItem: FurnitureItem.fromMap(item)),
+                (_) => FurnitureDetail(
+                  furnitureItem: FurnitureItem.fromMap(item),
+                  onAddToCart: (furnitureItem, quantity) {
+                    final cartItem = Map<String, dynamic>.from({
+                      'id': item['id'],
+                      'title': item['title'],
+                      'price': item['price'],
+                      'quantity': quantity,
+                      'image': item['pic'],
+                    });
+                    widget.onAddToCart(cartItem);
+                  },
+                ),
           ),
         );
       },
@@ -486,130 +452,73 @@ class _HomePageState extends State<HomePage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Бүтээгдэхүүний зураг
             Expanded(
               flex: 5,
-              child: Stack(
-                children: [
-                  ClipRRect(
-                    borderRadius: const BorderRadius.vertical(
-                      top: Radius.circular(16),
-                    ),
-                    child: Container(
-                      width: double.infinity,
-                      color: Colors.grey[200],
-                      child: FutureBuilder<Uint8List?>(
-                        future: _decodeBase64Image(item['pic']),
-                        builder: (context, snapshot) {
-                          if (snapshot.connectionState ==
-                              ConnectionState.waiting) {
-                            return const Center(
-                              child: CircularProgressIndicator(),
-                            );
-                          } else if (snapshot.hasError ||
-                              snapshot.data == null) {
-                            return const Center(
-                              child: Icon(
-                                Icons.image_outlined,
-                                size: 50,
-                                color: Colors.grey,
-                              ),
-                            );
-                          } else {
-                            return Image.memory(
-                              snapshot.data!,
-                              fit: BoxFit.cover,
-                            );
-                          }
-                        },
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    top: 8,
-                    right: 8,
-                    child: GestureDetector(
-                      onTap: () {
-                        setState(() {
-                          item['is_liked'] = !item['is_liked'];
-                        });
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.all(6),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.9),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          item['is_liked']
-                              ? Icons.favorite
-                              : Icons.favorite_border,
-                          size: 18,
-                          color:
-                              item['is_liked'] ? Colors.red : Colors.grey[600],
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+              child: ClipRRect(
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(16),
+                ),
+                child: FutureBuilder<Uint8List?>(
+                  future: _decodeBase64Image(item['pic']),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    } else if (!snapshot.hasData) {
+                      return const Center(
+                        child: Icon(Icons.image, size: 50, color: Colors.grey),
+                      );
+                    }
+                    return Image.memory(snapshot.data!, fit: BoxFit.cover);
+                  },
+                ),
               ),
             ),
-
-            // Бүтээгдэхүүний мэдээлэл
             Expanded(
               flex: 4,
               child: Padding(
                 padding: const EdgeInsets.all(10),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
                       item['title'],
                       style: const TextStyle(
-                        fontSize: 14,
                         fontWeight: FontWeight.bold,
+                        fontSize: 14,
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: 3),
-                    Row(
-                      children: [
-                        const Icon(Icons.star, size: 14, color: Colors.amber),
-                        const SizedBox(width: 3),
-                        Text(
-                          item['rating'].toStringAsFixed(1),
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                      ],
+                    const SizedBox(height: 4),
+                    Text(
+                      item['price'] != null
+                          ? '${double.tryParse(item['price'].toString())?.toStringAsFixed(2) ?? '0.00'}₮'
+                          : 'Үнэ байхгүй',
+                      style: const TextStyle(fontSize: 14, color: Colors.grey),
                     ),
                     const Spacer(),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                          '${double.parse(item['price']).toStringAsFixed(2)}₮',
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.black87,
+                        IconButton(
+                          icon: Icon(
+                            isLiked ? Icons.favorite : Icons.favorite_border,
+                            color: Colors.red,
                           ),
+                          onPressed: () => _toggleLike(item['id']),
                         ),
-                        Container(
-                          width: 26,
-                          height: 26,
-                          decoration: BoxDecoration(
-                            color: Colors.deepPurple,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: const Icon(
-                            Icons.add,
-                            size: 14,
-                            color: Colors.white,
+                        GestureDetector(
+                          onTap: () => _handleAddToCart(item),
+                          child: Container(
+                            width: 26,
+                            height: 26,
+                            decoration: BoxDecoration(
+                              color: Colors.deepPurple,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Icon(
+                              Icons.add,
+                              size: 14,
+                              color: Colors.white,
+                            ),
                           ),
                         ),
                       ],

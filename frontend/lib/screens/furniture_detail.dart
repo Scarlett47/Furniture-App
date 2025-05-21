@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/auth_service.dart';
 import 'package:model_viewer_plus/model_viewer_plus.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 class FurnitureItem {
   final int id;
   final String name;
-  final String price;
+  final int price;
   final String model;
   final List<Color> colors;
   final double rating;
@@ -27,17 +30,21 @@ class FurnitureItem {
 
   factory FurnitureItem.fromMap(Map<String, dynamic> map) {
     return FurnitureItem(
-      id: map['id'] ?? UniqueKey().toString(),
+      id: map['id'] ?? UniqueKey().toString().hashCode,
       name: map['title'] ?? 'Unnamed Product',
-      price: (map['price'] ?? 0),
+      price:
+          map['price']?.toString() == '0'
+              ? 0
+              : int.tryParse(map['price'].toString()) ?? 0,
       model: map['model_3d'] ?? 'default_model.glb',
       colors: _parseColors(map['colors']),
-      rating: (map['rating'] ?? 0),
+      rating: (map['rating'] ?? 0).toDouble(),
       reviews: map['reviews'] ?? 0,
       description: map['description'] ?? 'No description available',
       isFavorite: map['isFavorite'] ?? false,
     );
   }
+  String get formattedPrice => price.toStringAsFixed(2);
 
   static List<Color> _parseColors(dynamic colors) {
     if (colors is List<Color>) return colors;
@@ -45,7 +52,6 @@ class FurnitureItem {
       return colors.map((c) {
         if (c is Color) return c;
         if (c is String) {
-          // Simple string to color conversion (you can expand this)
           switch (c.toLowerCase()) {
             case 'red':
               return Colors.red;
@@ -70,8 +76,13 @@ class FurnitureItem {
 
 class FurnitureDetail extends StatefulWidget {
   final FurnitureItem furnitureItem;
+  final Function(FurnitureItem item, int quantity) onAddToCart;
 
-  const FurnitureDetail({super.key, required this.furnitureItem});
+  const FurnitureDetail({
+    super.key,
+    required this.furnitureItem,
+    required this.onAddToCart,
+  });
 
   @override
   State<FurnitureDetail> createState() => _FurnitureDetailState();
@@ -82,13 +93,37 @@ class _FurnitureDetailState extends State<FurnitureDetail>
   int selectedColorIndex = 0;
   int quantity = 1;
   late TabController _tabController;
-  late bool isFavorite;
+  final TextEditingController _commentController = TextEditingController();
+
+  // Mongolian translations
+  final Map<String, String> translations = {
+    'details': 'Дэлгэрэнгүй',
+    'specifications': 'Үзүүлэлтүүд',
+    'reviews': 'Сэтгэгдэлүүд',
+    'material': 'Материал',
+    'dimensions': 'Хэмжээ',
+    'weight': 'Жин',
+    'assembly': 'Угсралт',
+    'color': 'Өнгө',
+    'quantity': 'Тоо хэмжээ',
+    'add_to_cart': 'Сагсанд нэмэх',
+    'login_required': 'Та нэвтэрсний дараа сагсанд нэмэх боломжтой',
+    'error_occurred': 'Алдаа гарлаа. Дахин оролдоно уу',
+    'added_to_cart': 'сагсанд нэмэгдлээ',
+    'no_reviews': 'Одоогоор сэтгэгдэл алга байна',
+    'add_review': 'Үнэлгээ өгөх',
+    'write_review': 'Сэтгэгдэл бичих',
+    'submit': 'Илгээх',
+    'empty_review': 'Сэтгэгдэл хоосон байна!',
+    'review_success': 'Сэтгэгдэл амжилттай нэмэгдлээ!',
+    'review_error': 'Сэтгэгдэл нэмэхэд алдаа гарлаа',
+  };
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
-    isFavorite = widget.furnitureItem.isFavorite;
+    _checkAuthAndLoadReviews();
 
     SystemChrome.setSystemUIOverlayStyle(
       const SystemUiOverlayStyle(
@@ -98,8 +133,251 @@ class _FurnitureDetailState extends State<FurnitureDetail>
     );
   }
 
+  Future<void> _checkAuthAndLoadReviews() async {
+    final isLoggedIn = await AuthService.isLoggedIn();
+    if (!mounted) return;
+
+    if (!isLoggedIn) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(translations['login_required']!),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+    _fetchReviews();
+  }
+
+  void _addToCart() async {
+    try {
+      final isLoggedIn = await AuthService.isLoggedIn();
+      if (!mounted) return;
+
+      if (!isLoggedIn) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(translations['login_required']!),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      final token = await AuthService.getToken();
+      if (token == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(translations['login_required']!),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      final cartData = {
+        "furniture_id": widget.furnitureItem.id,
+        "quantity": quantity,
+        "price":
+            widget.furnitureItem.price, // Ensure backend accepts string price
+      };
+
+      // Debug: Print the request payload
+      print("Sending cart data: ${jsonEncode(cartData)}");
+
+      final response = await http.post(
+        Uri.parse("http://127.0.0.1:8000/api/cart/add-item/"),
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Token $token",
+        },
+        body: jsonEncode(cartData),
+      );
+
+      // Debug: Print response details
+      print("Response status: ${response.statusCode}");
+      print("Response body: ${response.body}");
+
+      if (response.statusCode == 201 || response.statusCode == 200) {
+        widget.onAddToCart(widget.furnitureItem, quantity); // Notify parent
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '${widget.furnitureItem.name} ${translations['added_to_cart']}',
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        final errorData = jsonDecode(response.body);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              errorData['error'] ??
+                  errorData['detail'] ??
+                  translations['error_occurred']!,
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      print("Exception in _addToCart: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${translations['error_occurred']}: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  double _rating = 5.0;
+  List<Map<String, dynamic>> _reviews = [];
+  bool _loadingReviews = true;
+
+  Future<void> _fetchReviews() async {
+    try {
+      setState(() => _loadingReviews = true);
+
+      final response = await http.get(
+        Uri.parse(
+          'http://127.0.0.1:8000/api/furniture/${widget.furnitureItem.id}/reviews/',
+        ),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        setState(() => _reviews = List<Map<String, dynamic>>.from(data));
+      } else {
+        print("Failed to fetch reviews: ${response.statusCode}");
+      }
+    } catch (e) {
+      print('Error fetching reviews: $e');
+    } finally {
+      setState(() => _loadingReviews = false);
+    }
+  }
+
+  Future<void> _submitComment() async {
+    final comment = _commentController.text.trim();
+    if (comment.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(translations['empty_review']!),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    try {
+      final token = await AuthService.getToken();
+      if (token == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(translations['login_required']!),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      final url =
+          'http://127.0.0.1:8000/api/furniture/${widget.furnitureItem.id}/reviews/';
+      final headers = {
+        'Authorization': 'Token $token',
+        'Content-Type': 'application/json',
+      };
+      final body = jsonEncode({'rating': _rating, 'comment': comment});
+
+      final response = await http.post(
+        Uri.parse(url),
+        headers: headers,
+        body: body,
+      );
+
+      if (response.statusCode == 201) {
+        _commentController.clear();
+        setState(() => _rating = 5.0);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(translations['review_success']!),
+            backgroundColor: Colors.green,
+          ),
+        );
+        _fetchReviews();
+      } else {
+        final errorData = jsonDecode(response.body);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(errorData['error'] ?? translations['review_error']!),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${translations['error_occurred']}: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _handleReviewAction(String action, int reviewId) async {
+    try {
+      final token = await AuthService.getToken();
+      if (token == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(translations['login_required']!),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      final response = await http.delete(
+        Uri.parse(
+          'http://127.0.0.1:8000/api/furniture/${widget.furnitureItem.id}/reviews/$reviewId/',
+        ),
+        headers: {'Authorization': 'Token $token'},
+      );
+
+      if (response.statusCode == 204) {
+        _fetchReviews();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Үнэлгээ амжилттай устгагдлаа'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        final errorData = jsonDecode(response.body);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              errorData['error'] ?? translations['error_occurred']!,
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${translations['error_occurred']}: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
   @override
   void dispose() {
+    _commentController.dispose();
     _tabController.dispose();
     super.dispose();
   }
@@ -107,7 +385,6 @@ class _FurnitureDetailState extends State<FurnitureDetail>
   @override
   Widget build(BuildContext context) {
     final item = widget.furnitureItem;
-    final size = MediaQuery.of(context).size;
 
     return Scaffold(
       backgroundColor: Colors.grey[50],
@@ -137,61 +414,9 @@ class _FurnitureDetailState extends State<FurnitureDetail>
             ),
           ),
         ),
-        actions: [
-          GestureDetector(
-            onTap: () {
-              setState(() {
-                isFavorite = !isFavorite;
-                item.isFavorite = isFavorite;
-              });
-            },
-            child: Container(
-              margin: const EdgeInsets.all(8),
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.9),
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.1),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Icon(
-                isFavorite ? Icons.favorite : Icons.favorite_border,
-                color: isFavorite ? Colors.red : Colors.black87,
-                size: 20,
-              ),
-            ),
-          ),
-          GestureDetector(
-            onTap: () {
-              // Handle share action
-            },
-            child: Container(
-              margin: const EdgeInsets.all(8),
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.9),
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.1),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: const Icon(Icons.share, color: Colors.black87, size: 20),
-            ),
-          ),
-        ],
       ),
       body: Column(
         children: [
-          // 3D Model Viewer with Gradient Background
           Expanded(
             flex: 6,
             child: Container(
@@ -202,20 +427,15 @@ class _FurnitureDetailState extends State<FurnitureDetail>
                   colors: [Colors.grey[100]!, Colors.grey[200]!],
                 ),
               ),
-              child: Stack(
-                children: [
-                  ModelViewer(
-                    src: 'assets/models/${item.model.split('/').last}',
-                    ar: true,
-                    autoRotate: true,
-                    cameraControls: true,
-                    backgroundColor: Colors.transparent,
-                  ),
-                ],
+              child: ModelViewer(
+                src: 'assets/models/${item.model.split('/').last}',
+                ar: true,
+                autoRotate: true,
+                cameraControls: true,
+                backgroundColor: Colors.transparent,
               ),
             ),
           ),
-          // Details Section
           Expanded(
             flex: 7,
             child: Container(
@@ -304,7 +524,7 @@ class _FurnitureDetailState extends State<FurnitureDetail>
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: Text(
-                                  '\$${item.price}',
+                                  '${item.formattedPrice}₮',
                                   style: const TextStyle(
                                     fontSize: 18,
                                     fontWeight: FontWeight.bold,
@@ -336,71 +556,62 @@ class _FurnitureDetailState extends State<FurnitureDetail>
                                 fontWeight: FontWeight.w600,
                                 fontSize: 14,
                               ),
-                              tabs: const [
-                                Tab(text: 'Details'),
-                                Tab(text: 'Specifications'),
-                                Tab(text: 'Reviews'),
+                              tabs: [
+                                Tab(text: translations['details']!),
+                                Tab(text: translations['specifications']!),
+                                Tab(text: translations['reviews']!),
                               ],
                             ),
                           ),
                           const SizedBox(height: 20),
 
-                          SizedBox(
-                            height: 120,
+                          Container(
+                            height: MediaQuery.of(context).size.height * 0.3,
                             child: TabBarView(
                               controller: _tabController,
                               children: [
-                                Text(
-                                  item.description,
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    height: 1.5,
-                                    color: Colors.grey[800],
+                                SingleChildScrollView(
+                                  child: Text(
+                                    item.description,
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      height: 1.5,
+                                      color: Colors.grey[800],
+                                    ),
                                   ),
                                 ),
-
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    _buildSpecItem(
-                                      'Material',
-                                      'Premium Quality Wood',
-                                    ),
-                                    _buildSpecItem(
-                                      'Dimensions',
-                                      '65cm x 72cm x 80cm',
-                                    ),
-                                    _buildSpecItem('Weight', '12.5 kg'),
-                                    _buildSpecItem(
-                                      'Assembly',
-                                      'Required, tools included',
-                                    ),
-                                  ],
+                                SingleChildScrollView(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      _buildSpecItem(
+                                        'Материал',
+                                        'Premium Quality Wood',
+                                      ),
+                                      _buildSpecItem(
+                                        'Хэмжээс',
+                                        '65см x 72см x 80см',
+                                      ),
+                                      _buildSpecItem('Жин', '12.5 кг'),
+                                      _buildSpecItem(
+                                        'Угсралт',
+                                        'Шаардлагатай, багаж хэрэгсэл орсон',
+                                      ),
+                                    ],
+                                  ),
                                 ),
-
-                                Column(
-                                  children: [
-                                    _buildReviewItem(
-                                      'Emily Johnson',
-                                      4.8,
-                                      'Absolutely love this piece! Great quality and looks amazing in my living room.',
-                                    ),
-                                    const Divider(),
-                                    _buildReviewItem(
-                                      'Michael Smith',
-                                      4.5,
-                                      'Very comfortable and well made. Assembly was easy.',
-                                    ),
-                                  ],
+                                SingleChildScrollView(
+                                  child: _buildReviewsTab(),
                                 ),
                               ],
                             ),
                           ),
                           const SizedBox(height: 24),
 
-                          const Text(
-                            'Color',
-                            style: TextStyle(
+                          Text(
+                            translations['color']!,
+                            style: const TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
                               color: Colors.black87,
@@ -462,9 +673,9 @@ class _FurnitureDetailState extends State<FurnitureDetail>
 
                           Row(
                             children: [
-                              const Text(
-                                'Quantity',
-                                style: TextStyle(
+                              Text(
+                                translations['quantity']!,
+                                style: const TextStyle(
                                   fontSize: 18,
                                   fontWeight: FontWeight.bold,
                                   color: Colors.black87,
@@ -518,7 +729,6 @@ class _FurnitureDetailState extends State<FurnitureDetail>
                       ),
                     ),
                   ),
-
                   Container(
                     padding: EdgeInsets.fromLTRB(
                       20,
@@ -552,14 +762,11 @@ class _FurnitureDetailState extends State<FurnitureDetail>
                             color: Colors.deepPurple,
                           ),
                         ),
-
                         Expanded(
                           child: SizedBox(
                             height: 50,
                             child: ElevatedButton(
-                              onPressed: () {
-                                _showAddedToCartDialog(context);
-                              },
+                              onPressed: _addToCart,
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.deepPurple,
                                 elevation: 0,
@@ -567,9 +774,9 @@ class _FurnitureDetailState extends State<FurnitureDetail>
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                               ),
-                              child: const Text(
-                                'Add to Cart',
-                                style: TextStyle(
+                              child: Text(
+                                translations['add_to_cart']!,
+                                style: const TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.bold,
                                   color: Colors.white,
@@ -623,65 +830,198 @@ class _FurnitureDetailState extends State<FurnitureDetail>
     );
   }
 
-  Widget _buildReviewItem(String name, double rating, String comment) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+  Widget _buildReviewsTab() {
+    if (_loadingReviews) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Text(name, style: const TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(width: 8),
-              Icon(Icons.star, color: Colors.amber, size: 16),
-              const SizedBox(width: 4),
-              Text('$rating', style: const TextStyle(fontSize: 14)),
-            ],
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  '${_reviews.length} ${translations['reviews']!}',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                Row(
+                  children: List.generate(
+                    5,
+                    (i) => Icon(
+                      i < widget.furnitureItem.rating
+                          ? Icons.star
+                          : Icons.star_border,
+                      color: Colors.amber,
+                      size: 20,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 4),
-          Text(
-            comment,
-            style: const TextStyle(fontSize: 14, color: Colors.grey),
+          const Divider(),
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: _reviews.length,
+            separatorBuilder: (_, __) => const Divider(),
+            itemBuilder: (context, index) {
+              final review = _reviews[index];
+              return ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: Colors.deepPurple,
+                  child: Text(
+                    (review['username'] as String? ?? 'U')[0].toUpperCase(),
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                ),
+                title: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Row(
+                            children: [
+                              Text(
+                                review['username'] as String? ?? 'Unknown',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Row(
+                                children: List.generate(
+                                  5,
+                                  (i) => Icon(
+                                    i < (review['rating'] as num? ?? 0)
+                                        ? Icons.star
+                                        : Icons.star_border,
+                                    color: Colors.amber,
+                                    size: 16,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (review['user_info']?['username'] ==
+                            (review['username'] as String?))
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline, size: 20),
+                            onPressed:
+                                () =>
+                                    _handleReviewAction('delete', review['id']),
+                            color: Colors.red[300],
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(review['comment'] as String? ?? ''),
+                  ],
+                ),
+                subtitle: Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    DateTime.parse(
+                      review['created_at'] as String,
+                    ).toLocal().toString().split(' ')[0],
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  ),
+                ),
+              );
+            },
+          ),
+          if (_reviews.isEmpty)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  translations['no_reviews']!,
+                  style: TextStyle(color: Colors.grey[600], fontSize: 16),
+                ),
+              ),
+            ),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16),
+            child: Divider(),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  translations['add_review']!,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: List.generate(
+                    5,
+                    (index) => GestureDetector(
+                      onTap: () => setState(() => _rating = index + 1),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        child: Icon(
+                          index < _rating ? Icons.star : Icons.star_border,
+                          color: Colors.amber,
+                          size: 36,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _commentController,
+                  maxLines: 3,
+                  decoration: InputDecoration(
+                    hintText: translations['write_review']!,
+                    border: const OutlineInputBorder(),
+                    filled: true,
+                    fillColor: Colors.grey[50],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: _submitComment,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.deepPurple,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: Text(
+                      translations['submit']!,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
-    );
-  }
-
-  void _showAddedToCartDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Added to Cart'),
-          content: Text(
-            '${widget.furnitureItem.name} (Quantity: $quantity) has been added to your cart.',
-          ),
-          actions: <Widget>[
-            TextButton(
-              child: const Text('Continue Shopping'),
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
-            ),
-            TextButton(
-              style: TextButton.styleFrom(foregroundColor: Colors.deepPurple),
-              child: const Text('View Cart'),
-              onPressed: () {
-                Navigator.of(context).pop();
-                if (ScaffoldMessenger.of(context) != null) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Navigating to cart...'),
-                      duration: Duration(seconds: 1),
-                    ),
-                  );
-                }
-              },
-            ),
-          ],
-        );
-      },
     );
   }
 }

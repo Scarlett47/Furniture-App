@@ -2,9 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:frontend/auth_service.dart';
 import 'package:frontend/routes.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({Key? key}) : super(key: key);
+  final VoidCallback onNavigateToOrderHistory;
+
+  const ProfileScreen({Key? key, required this.onNavigateToOrderHistory})
+    : super(key: key);
 
   @override
   _ProfileScreenState createState() => _ProfileScreenState();
@@ -13,6 +18,7 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   bool _isLoading = true;
   bool _isEditing = false;
+  bool _changingPassword = false;
   Map<String, dynamic> _userData = {};
   String? _errorMessage;
   String? _successMessage;
@@ -25,74 +31,82 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final _addressController = TextEditingController();
 
   // Password change controllers
+  final _passwordFormKey = GlobalKey<FormState>();
   final _currentPasswordController = TextEditingController();
   final _newPasswordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
   bool _obscureCurrentPassword = true;
   bool _obscureNewPassword = true;
   bool _obscureConfirmPassword = true;
-  bool _changingPassword = false;
 
   @override
   void initState() {
     super.initState();
-    _loadProfile();
+    _checkAuthAndLoadProfile();
   }
 
-  @override
-  void dispose() {
-    _usernameController.dispose();
-    _emailController.dispose();
-    _phoneController.dispose();
-    _addressController.dispose();
-    _currentPasswordController.dispose();
-    _newPasswordController.dispose();
-    _confirmPasswordController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _loadProfile() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-      _successMessage = null;
-    });
-
+  Future<void> _checkAuthAndLoadProfile() async {
     try {
-      final response = await AuthService.getProfile();
+      final isLoggedIn = await AuthService.isLoggedIn();
+      if (!isLoggedIn) {
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, AppRoutes.login);
+          return;
+        }
+      }
+      await _loadUserProfile();
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Error checking authentication status';
+        _isLoading = false;
+      });
+    }
+  }
 
-      if (response['success'] == true) {
+  Future<void> _loadUserProfile() async {
+    try {
+      final token = await AuthService.getToken();
+      if (token == null) {
         setState(() {
-          _userData = response['user'];
+          _errorMessage = 'Authentication required';
+          _isLoading = false;
+        });
+        return;
+      }
+
+      final response = await http.get(
+        Uri.parse('http://127.0.0.1:8000/api/users/me/'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Token $token',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        setState(() {
+          _userData = jsonDecode(response.body);
+          _isLoading = false;
+          // Initialize controllers with current data
           _usernameController.text = _userData['username'] ?? '';
           _emailController.text = _userData['email'] ?? '';
           _phoneController.text = _userData['phone'] ?? '';
           _addressController.text = _userData['address'] ?? '';
         });
+      } else if (response.statusCode == 401) {
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, AppRoutes.login);
+        }
       } else {
         setState(() {
-          _errorMessage =
-              response['message'] ?? 'Профайлын мэдээллийг ачаалж чадсангүй.';
+          _errorMessage = 'Failed to load profile';
+          _isLoading = false;
         });
-
-        // If token is invalid, go back to login
-        if (response['message']?.contains('Authentication expired') == true) {
-          Future.delayed(const Duration(seconds: 2), () {
-            if (mounted) {
-              Navigator.pushReplacementNamed(context, AppRoutes.login);
-            }
-          });
-        }
       }
     } catch (e) {
       setState(() {
-        _errorMessage = 'Холболтын алдаа. Интернэт холболтоо шалгана уу.';
+        _errorMessage = 'Error loading profile: $e';
+        _isLoading = false;
       });
-      print('Profile load error: $e');
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
     }
   }
 
@@ -100,46 +114,61 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() {
-      _isLoading = true;
       _errorMessage = null;
       _successMessage = null;
+      _isLoading = true;
     });
 
     try {
-      final response = await AuthService.updateProfile({
-        'username': _usernameController.text.trim(),
-        'email': _emailController.text.trim(),
-        'phone': _phoneController.text.trim(),
-        'address': _addressController.text.trim(),
-      });
-
-      if (response['success'] == true) {
+      final token = await AuthService.getToken();
+      if (token == null) {
         setState(() {
-          _userData = response['user'];
-          _isEditing = false;
-          _successMessage =
-              response['message'] ?? 'Профайл амжилттай шинэчлэгдлээ.';
+          _errorMessage = 'Authentication required';
+          _isLoading = false;
         });
+        return;
+      }
+
+      final response = await http.put(
+        Uri.parse('http://127.0.0.1:8000/api/users/me/'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Token $token',
+        },
+        body: jsonEncode({
+          'username': _usernameController.text,
+          'email': _emailController.text,
+          'phone': _phoneController.text,
+          'address': _addressController.text,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        setState(() {
+          _successMessage = 'Profile updated successfully';
+          _isEditing = false;
+          _userData = jsonDecode(response.body);
+        });
+      } else if (response.statusCode == 401) {
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, AppRoutes.login);
+        }
       } else {
         setState(() {
-          _errorMessage =
-              response['message'] ?? 'Профайлыг шинэчлэхэд алдаа гарлаа.';
+          _errorMessage = 'Failed to update profile';
         });
       }
     } catch (e) {
       setState(() {
-        _errorMessage = 'Холболтын алдаа. Интернэт холболтоо шалгана уу.';
+        _errorMessage = 'Error updating profile: $e';
       });
-      print('Profile update error: $e');
     } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      setState(() => _isLoading = false);
     }
   }
 
-  Future<void> _changePassword() async {
-    if (!_formKey.currentState!.validate()) return;
+  void _changePassword() async {
+    if (!_passwordFormKey.currentState!.validate()) return;
 
     setState(() {
       _isLoading = true;
@@ -147,38 +176,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _successMessage = null;
     });
 
-    try {
-      final response = await AuthService.changePassword(
-        _currentPasswordController.text.trim(),
-        _newPasswordController.text.trim(),
-      );
+    final result = await AuthService.changePassword(
+      _currentPasswordController.text,
+      _newPasswordController.text,
+    );
 
-      if (response['success'] == true) {
-        setState(() {
+    if (mounted) {
+      setState(() {
+        _isLoading = false;
+        if (result['success']) {
+          _successMessage = result['message'];
           _changingPassword = false;
-          _successMessage =
-              response['message'] ?? 'Нууц үг амжилттай солигдлоо.';
-
           // Clear password fields
           _currentPasswordController.clear();
           _newPasswordController.clear();
           _confirmPasswordController.clear();
-        });
-      } else {
-        setState(() {
-          _errorMessage =
-              response['message'] ?? 'Нууц үг солиход алдаа гарлаа.';
-        });
-      }
-    } catch (e) {
-      setState(() {
-        _errorMessage = 'Холболтын алдаа. Интернэт холболтоо шалгана уу.';
+        } else {
+          _errorMessage = result['error'];
+        }
       });
-      print('Password change error: $e');
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
     }
   }
 
@@ -563,7 +579,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Widget _buildPasswordForm() {
     return Form(
-      key: _formKey,
+      key: _passwordFormKey,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
